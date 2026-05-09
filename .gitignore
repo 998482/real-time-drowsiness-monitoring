@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+# Local virtual environment
+venv/
+
+# Local SQLite database file (generated at runtime)
+drowsiness.db
+
+# OS / editor junk (safe to ignore)
+.DS_Store
+Thumbs.db
+.vscode/
+

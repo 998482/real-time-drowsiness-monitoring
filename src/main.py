@@ -6,6 +6,7 @@ import cv2
 import time
 import winsound
 import csv
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -100,6 +101,64 @@ def log_alert_event(log_file_path: Path, alert_count: int) -> None:
         writer.writerow([timestamp, alert_count, "DROWSINESS_ALERT"])
 
 
+def init_db(db_path: Path) -> None:
+    # Database connection happens here to create DB/table automatically.
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drowsiness_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            blink_count INTEGER NOT NULL,
+            eye_closure_duration REAL NOT NULL,
+            risk_score REAL NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+    connection.commit()
+    connection.close()
+
+
+def calculate_risk_score(blink_count: int, eye_closure_duration: float) -> tuple[float, str]:
+    # Risk score is calculated here using a simple beginner-friendly formula.
+    risk_score = (blink_count * 2) + (eye_closure_duration * 10)
+
+    if risk_score <= 30:
+        status = "Safe"
+    elif risk_score <= 60:
+        status = "Moderate"
+    else:
+        status = "Dangerous"
+
+    return risk_score, status
+
+
+def insert_drowsiness_log(
+    db_path: Path,
+    blink_count: int,
+    eye_closure_duration: float,
+    risk_score: float,
+    status: str,
+) -> None:
+    timestamp = datetime.now().isoformat(timespec="seconds")
+
+    # SQL INSERT happens here whenever a new drowsiness episode is detected.
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT INTO drowsiness_logs (
+            timestamp, blink_count, eye_closure_duration, risk_score, status
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (timestamp, blink_count, eye_closure_duration, risk_score, status),
+    )
+    connection.commit()
+    connection.close()
+
+
 def main() -> None:
     face_cascade, eye_cascade = load_cascades()
     if face_cascade is None or eye_cascade is None:
@@ -113,7 +172,10 @@ def main() -> None:
 
     print("Webcam started. Press 'Q' to quit.")
     log_file_path = setup_alert_log_file()
+    db_path = Path(__file__).resolve().parent.parent / "drowsiness.db"
+    init_db(db_path)
     print(f"Alert log file: {log_file_path}")
+    print(f"SQLite DB file: {db_path}")
 
     # Track when eyes first become unavailable.
     eyes_missing_start_time: float | None = None
@@ -153,6 +215,9 @@ def main() -> None:
             play_alert_sound()
             alert_count += 1
             log_alert_event(log_file_path, alert_count)
+            eye_closure_duration = now - eyes_missing_start_time if eyes_missing_start_time is not None else 0.0
+            risk_score, status = calculate_risk_score(alert_count, eye_closure_duration)
+            insert_drowsiness_log(db_path, alert_count, eye_closure_duration, risk_score, status)
             alert_active = True
 
         if show_alert:
